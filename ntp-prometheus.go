@@ -21,10 +21,17 @@ var (
 		Name:      "rtt",
 		Help:      "Round-trip time in seconds for NTP request/response",
 	}, []string{"target"})
+	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "reachable",
+		Help:      "If a target is reachable",
+	}, []string{"target"})
 )
 
 func init() {
 	prometheus.MustRegister(rttMetric)
+	prometheus.MustRegister(reachableMetric)
 }
 
 type packet struct {
@@ -59,30 +66,29 @@ func singleprobe(hostport, label string) error {
 	req := &packet{Settings: 0x23}
 	rsp := &packet{}
 	if err := binary.Write(conn, binary.BigEndian, req); err != nil {
+		reachableMetric.With(prometheus.Labels{"target": label}).Set(0)
 		return err
 	}
 	sent := time.Now()
 	if err := binary.Read(conn, binary.BigEndian, rsp); err != nil {
+		reachableMetric.With(prometheus.Labels{"target": label}).Set(0)
 		return err
 	}
 	elapsed := time.Now().Sub(sent)
-	fmt.Printf("%s (%s): received in %v nanos\n", label, hostport, elapsed.Nanoseconds())
+
+	fmt.Printf("%s (%s): received in %v nanos with dispersion %d\n", label, hostport, elapsed.Nanoseconds(), rsp.RootDispersion)
 	rttMetric.With(prometheus.Labels{"target": label}).Set(elapsed.Seconds())
+	reachableMetric.With(prometheus.Labels{"target": label}).Set(1)
 	return nil
 }
 
 func probe(hostport, label string) {
-
-	loops := 0
 	for {
-		if loops > 0 {
-			time.Sleep(30 * time.Second)
-		}
-		loops++
 		err := singleprobe(hostport, label)
 		if err != nil {
 			log.Printf("%s(%s): %v", label, hostport, err)
 		}
+		time.Sleep(30 * time.Second)
 	}
 }
 
@@ -109,5 +115,6 @@ func main() {
 		go probe(t.hostport, t.label)
 	}
 
-	log.Fatal(http.ListenAndServe(*addr, nil))
+	err := http.ListenAndServe(*addr, nil)
+	fmt.Printf("exited: %v", err)
 }
