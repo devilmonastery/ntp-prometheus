@@ -27,11 +27,18 @@ var (
 		Name:      "reachable",
 		Help:      "If a target is reachable",
 	}, []string{"target"})
+	dispersionMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "dispersion",
+		Help:      "root dispersion",
+	}, []string{"target"})
 )
 
 func init() {
 	prometheus.MustRegister(rttMetric)
 	prometheus.MustRegister(reachableMetric)
+	prometheus.MustRegister(dispersionMetric)
 }
 
 type packet struct {
@@ -52,7 +59,24 @@ type packet struct {
 	TxTimeFrac     uint32
 }
 
+func time16ToDuration(time16 uint32) time.Duration {
+	return time.Duration(time16>>16)*time.Second + ((time.Duration(uint16(time16))*1e6)>>16)*time.Microsecond
+}
+
 func singleprobe(hostport, label string) error {
+	// version 4, mode 3
+	req := &packet{Settings: 0x23}
+	rsp := &packet{}
+	reachable := float64(0)
+	elapsed := time.Duration(0)
+	defer func() {
+		rttMetric.With(prometheus.Labels{"target": label}).Set(elapsed.Seconds())
+		reachableMetric.With(prometheus.Labels{"target": label}).Set(reachable)
+		dispersion := float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
+		dispersionMetric.With(prometheus.Labels{"target": label}).Set(dispersion)
+		fmt.Printf("%s (%s): received in %v nanos with dispersion %0.2f\n", label, hostport, elapsed.Nanoseconds(), dispersion)
+	}()
+
 	conn, err := net.Dial("udp", hostport)
 	if err != nil {
 		return err
@@ -62,23 +86,16 @@ func singleprobe(hostport, label string) error {
 		time.Now().Add(30 * time.Second)); err != nil {
 		return err
 	}
-	// version 4, mode 3
-	req := &packet{Settings: 0x23}
-	rsp := &packet{}
 	if err := binary.Write(conn, binary.BigEndian, req); err != nil {
-		reachableMetric.With(prometheus.Labels{"target": label}).Set(0)
 		return err
 	}
 	sent := time.Now()
 	if err := binary.Read(conn, binary.BigEndian, rsp); err != nil {
-		reachableMetric.With(prometheus.Labels{"target": label}).Set(0)
 		return err
 	}
-	elapsed := time.Now().Sub(sent)
+	elapsed = time.Now().Sub(sent)
+	reachable = 1
 
-	fmt.Printf("%s (%s): received in %v nanos with dispersion %d\n", label, hostport, elapsed.Nanoseconds(), rsp.RootDispersion)
-	rttMetric.With(prometheus.Labels{"target": label}).Set(elapsed.Seconds())
-	reachableMetric.With(prometheus.Labels{"target": label}).Set(1)
 	return nil
 }
 
