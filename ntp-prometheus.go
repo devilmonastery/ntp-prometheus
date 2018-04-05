@@ -65,24 +65,26 @@ func time16ToDuration(time16 uint32) time.Duration {
 }
 
 func singleprobe(group, target, hostport string) error {
-	// version 4, mode 3
-	req := &packet{Settings: 0x23}
-	rsp := &packet{}
 	reachable := float64(0)
 	elapsed := time.Duration(0)
+	labels := prometheus.Labels{"group": group, "target": target}
+	rsp := &packet{}
+
 	defer func() {
-		reachableMetric.With(prometheus.Labels{"group": group, "target": target}).Set(reachable)
+		reachableMetric.With(labels).Set(reachable)
 		dispersion := math.NaN()
 		if reachable > 0 {
 			dispersion = float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
-			rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(elapsed.Seconds())
+			rttMetric.With(labels).Set(elapsed.Seconds())
 		} else {
-			rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(math.NaN())
+			rttMetric.With(labels).Set(math.NaN())
 		}
-		dispersionMetric.With(prometheus.Labels{"group": group, "target": target}).Set(dispersion)
+		dispersionMetric.With(labels).Set(dispersion)
 		fmt.Printf("%s-%s (%s): reachable(%f) in %v nanos with dispersion %0.2f\n", group, target, hostport, reachable, elapsed.Nanoseconds(), dispersion)
 	}()
 
+	// version 4, mode 3
+	req := &packet{Settings: 0x23}
 	conn, err := net.Dial("udp", hostport)
 	if err != nil {
 		return err
