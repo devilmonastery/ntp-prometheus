@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"time"
@@ -70,11 +71,16 @@ func singleprobe(group, target, hostport string) error {
 	reachable := float64(0)
 	elapsed := time.Duration(0)
 	defer func() {
-		rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(elapsed.Seconds())
 		reachableMetric.With(prometheus.Labels{"group": group, "target": target}).Set(reachable)
-		dispersion := float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
+		dispersion := math.NaN()
+		if reachable > 0 {
+			dispersion = float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
+			rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(elapsed.Seconds())
+		} else {
+			rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(math.NaN())
+		}
 		dispersionMetric.With(prometheus.Labels{"group": group, "target": target}).Set(dispersion)
-		fmt.Printf("%s-%s (%s): received in %v nanos with dispersion %0.2f\n", group, target, hostport, elapsed.Nanoseconds(), dispersion)
+		fmt.Printf("%s-%s (%s): reachable(%f) in %v nanos with dispersion %0.2f\n", group, target, hostport, reachable, elapsed.Nanoseconds(), dispersion)
 	}()
 
 	conn, err := net.Dial("udp", hostport)
@@ -105,7 +111,7 @@ func probe(group, target, hostport string) {
 		if err != nil {
 			log.Printf("%s-%s(%s): %v", group, target, hostport, err)
 		}
-		time.Sleep(30 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
 }
 
