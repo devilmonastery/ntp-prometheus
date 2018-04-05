@@ -20,19 +20,19 @@ var (
 		Subsystem: "probe",
 		Name:      "rtt",
 		Help:      "Round-trip time in seconds for NTP request/response",
-	}, []string{"target"})
+	}, []string{"group", "target"})
 	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "reachable",
 		Help:      "If a target is reachable",
-	}, []string{"target"})
+	}, []string{"group", "target"})
 	dispersionMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "dispersion",
 		Help:      "root dispersion",
-	}, []string{"target"})
+	}, []string{"group", "target"})
 )
 
 func init() {
@@ -63,18 +63,18 @@ func time16ToDuration(time16 uint32) time.Duration {
 	return time.Duration(time16>>16)*time.Second + ((time.Duration(uint16(time16))*1e6)>>16)*time.Microsecond
 }
 
-func singleprobe(hostport, label string) error {
+func singleprobe(group, target, hostport string) error {
 	// version 4, mode 3
 	req := &packet{Settings: 0x23}
 	rsp := &packet{}
 	reachable := float64(0)
 	elapsed := time.Duration(0)
 	defer func() {
-		rttMetric.With(prometheus.Labels{"target": label}).Set(elapsed.Seconds())
-		reachableMetric.With(prometheus.Labels{"target": label}).Set(reachable)
+		rttMetric.With(prometheus.Labels{"group": group, "target": target}).Set(elapsed.Seconds())
+		reachableMetric.With(prometheus.Labels{"group": group, "target": target}).Set(reachable)
 		dispersion := float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
-		dispersionMetric.With(prometheus.Labels{"target": label}).Set(dispersion)
-		fmt.Printf("%s (%s): received in %v nanos with dispersion %0.2f\n", label, hostport, elapsed.Nanoseconds(), dispersion)
+		dispersionMetric.With(prometheus.Labels{"group": group, "target": target}).Set(dispersion)
+		fmt.Printf("%s-%s (%s): received in %v nanos with dispersion %0.2f\n", group, target, hostport, elapsed.Nanoseconds(), dispersion)
 	}()
 
 	conn, err := net.Dial("udp", hostport)
@@ -99,11 +99,11 @@ func singleprobe(hostport, label string) error {
 	return nil
 }
 
-func probe(hostport, label string) {
+func probe(group, target, hostport string) {
 	for {
-		err := singleprobe(hostport, label)
+		err := singleprobe(group, target, hostport)
 		if err != nil {
-			log.Printf("%s(%s): %v", label, hostport, err)
+			log.Printf("%s-%s(%s): %v", group, target, hostport, err)
 		}
 		time.Sleep(30 * time.Second)
 	}
@@ -114,22 +114,35 @@ func main() {
 	http.Handle("/metrics", promhttp.Handler())
 
 	targets := []struct {
-		label    string
+		group    string
+		target   string
 		hostport string
 	}{
-		{"time_dns", "time.google.com:123"},
-		{"time1_ipv4", "216.239.35.0:123"},
-		{"time1_ipv6", "[2001:4860:4806::]:123"},
-		{"time2_ipv4", "216.239.35.4:123"},
-		{"time2_ipv6", "[2001:4860:4806:4::]:123"},
-		{"time3_ipv4", "216.239.35.8:123"},
-		{"time3_ipv6", "[2001:4860:4806:8::]:123"},
-		{"time4_ipv4", "216.239.35.12:123"},
-		{"time4_ipv6", "[2001:4860:4806:c::]:123"},
+		{"google", "time_dns", "time.google.com:123"},
+		{"google", "time1_ipv4", "216.239.35.0:123"},
+		{"google", "time1_ipv6", "[2001:4860:4806::]:123"},
+		{"google", "time2_ipv4", "216.239.35.4:123"},
+		{"google", "time2_ipv6", "[2001:4860:4806:4::]:123"},
+		{"google", "time3_ipv4", "216.239.35.8:123"},
+		{"google", "time3_ipv6", "[2001:4860:4806:8::]:123"},
+		{"google", "time4_ipv4", "216.239.35.12:123"},
+		{"google", "time4_ipv6", "[2001:4860:4806:c::]:123"},
+
+		{"apple", "time", "time.apple.com:123"},
+		{"microsoft", "time", "time.windows.com:123"},
+
+		{"nist", "time", "time.nist.gov:123"},
+		{"nist", "time-a-g", "time-a-g.nist.gov:123"},
+		{"nist", "time-a-b", "time-a-b.nist.gov:123"},
+
+		{"pool", "0", "0.pool.ntp.org:123"},
+		{"pool", "1", "1.pool.ntp.org:123"},
+		{"pool", "2", "2.pool.ntp.org:123"},
+		{"pool", "3", "3.pool.ntp.org:123"},
 	}
 
 	for _, t := range targets {
-		go probe(t.hostport, t.label)
+		go probe(t.group, t.target, t.hostport)
 	}
 
 	err := http.ListenAndServe(*addr, nil)
