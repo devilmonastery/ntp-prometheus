@@ -34,12 +34,23 @@ var (
 		Name:      "dispersion",
 		Help:      "root dispersion",
 	}, []string{"group", "target"})
+	xmtTimeMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "xmt",
+		Help:      "Time at server (transmit timestamp) in seconds since epoch",
+	}, []string{"group", "target"})
+)
+
+const (
+	NTPUTCEpochDelta = 2208988800
 )
 
 func init() {
 	prometheus.MustRegister(rttMetric)
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
+	prometheus.MustRegister(xmtTimeMetric)
 }
 
 type packet struct {
@@ -50,18 +61,20 @@ type packet struct {
 	RootDelay      uint32
 	RootDispersion uint32
 	ReferenceID    uint32
-	RefTimeSec     uint32
-	RefTimeFrac    uint32
-	OrigTimeSec    uint32
-	OrigTimeFrac   uint32
-	RxTimeSec      uint32
-	RxTimeFrac     uint32
-	TxTimeSec      uint32
-	TxTimeFrac     uint32
+	RefTime        uint64
+	OrigTime       uint64
+	RxTime         uint64
+	TxTime         uint64
 }
 
-func time16ToDuration(time16 uint32) time.Duration {
-	return time.Duration(time16>>16)*time.Second + ((time.Duration(uint16(time16))*1e6)>>16)*time.Microsecond
+func ntpTime32ToDuration(ntpTime32 uint32) time.Duration {
+	return time.Duration(ntpTime32>>16)*time.Second + ((time.Duration(uint16(ntpTime32))*1e6)>>16)*time.Microsecond
+}
+
+func ntpTime64ToTime(ntpTime64 uint64) time.Time {
+	sec := int64(ntpTime64>>32) - NTPUTCEpochDelta
+	nsec := int64((uint64(uint32(ntpTime64)) * 1e9) >> 32)
+	return time.Unix(sec, nsec)
 }
 
 func singleprobe(group, target, hostport string) error {
@@ -72,15 +85,19 @@ func singleprobe(group, target, hostport string) error {
 
 	defer func() {
 		reachableMetric.With(labels).Set(reachable)
-		dispersion := math.NaN()
-		if reachable > 0 {
-			dispersion = float64(time16ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
+		dispersion := float64(ntpTime32ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
+		xmt := float64(ntpTime64ToTime(rsp.TxTime).UnixNano()) / float64(1e9)
+		// We got an answer and it's plausible, report what we got.
+		if reachable > 0 && dispersion > 0 {
 			rttMetric.With(labels).Set(elapsed.Seconds())
+			dispersionMetric.With(labels).Set(dispersion)
+			xmtTimeMetric.With(labels).Set(xmt)
 		} else {
 			rttMetric.With(labels).Set(math.NaN())
+			dispersionMetric.With(labels).Set(math.NaN())
+			xmtTimeMetric.With(labels).Set(math.NaN())
 		}
-		dispersionMetric.With(labels).Set(dispersion)
-		fmt.Printf("%s-%s (%s): reachable(%f) in %v nanos with dispersion %0.2f\n", group, target, hostport, reachable, elapsed.Nanoseconds(), dispersion)
+		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos with dispersion %0.2f and xmt %0.2f\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds(), dispersion, xmt)
 	}()
 
 	// version 4, mode 3
