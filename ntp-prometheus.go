@@ -37,8 +37,14 @@ var (
 	xmtTimeMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "xmt",
-		Help:      "Time at server (transmit timestamp) in seconds since epoch",
+		Name:      "xmt_delta",
+		Help:      "Time at server minus ntp transmit timestamp in ms",
+	}, []string{"group", "target"})
+	xmtTimeMetricComp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "xmt_delta_compensated",
+		Help:      "Time at server minus ntp transmit timestamp in ms",
 	}, []string{"group", "target"})
 )
 
@@ -51,6 +57,7 @@ func init() {
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
 	prometheus.MustRegister(xmtTimeMetric)
+	prometheus.MustRegister(xmtTimeMetricComp)
 }
 
 type packet struct {
@@ -82,22 +89,27 @@ func singleprobe(group, target, hostport string) error {
 	elapsed := time.Duration(0)
 	labels := prometheus.Labels{"group": group, "target": target}
 	rsp := &packet{}
+	sent := time.Now()
+	recv := time.Now()
 
 	defer func() {
 		reachableMetric.With(labels).Set(reachable)
 		dispersion := float64(ntpTime32ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
-		xmt := float64(ntpTime64ToTime(rsp.TxTime).UnixNano()) / float64(1e9)
 		// We got an answer and it's plausible, report what we got.
 		if reachable > 0 && dispersion > 0 {
 			rttMetric.With(labels).Set(elapsed.Seconds())
 			dispersionMetric.With(labels).Set(dispersion)
-			xmtTimeMetric.With(labels).Set(xmt)
+			xmt := time.Now().Sub(ntpTime64ToTime(rsp.TxTime)).Nanoseconds()
+			xmtTimeMetric.With(labels).Set(float64(xmt) / float64(1e6))
+			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
+			xmtTimeMetricComp.With(labels).Set(float64(offset) / float64(1e6))
 		} else {
 			rttMetric.With(labels).Set(math.NaN())
 			dispersionMetric.With(labels).Set(math.NaN())
 			xmtTimeMetric.With(labels).Set(math.NaN())
+			xmtTimeMetricComp.With(labels).Set(math.NaN())
 		}
-		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos with dispersion %0.2f and xmt %0.2f\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds(), dispersion, xmt)
+		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
 	}()
 
 	// version 4, mode 3
@@ -114,11 +126,12 @@ func singleprobe(group, target, hostport string) error {
 	if err := binary.Write(conn, binary.BigEndian, req); err != nil {
 		return err
 	}
-	sent := time.Now()
+	sent = time.Now()
 	if err := binary.Read(conn, binary.BigEndian, rsp); err != nil {
 		return err
 	}
-	elapsed = time.Now().Sub(sent)
+	recv = time.Now()
+	elapsed = recv.Sub(sent)
 	reachable = 1
 
 	return nil
