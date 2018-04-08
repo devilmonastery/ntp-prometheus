@@ -34,17 +34,11 @@ var (
 		Name:      "dispersion",
 		Help:      "root dispersion",
 	}, []string{"group", "target"})
-	xmtTimeMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	timeOffsetMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "xmt_delta",
-		Help:      "Time at server minus ntp transmit timestamp in ms",
-	}, []string{"group", "target"})
-	xmtTimeMetricComp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "ntp",
-		Subsystem: "probe",
-		Name:      "xmt_delta_compensated",
-		Help:      "Time at server minus ntp transmit timestamp in ms",
+		Name:      "offset",
+		Help:      "Offset from local time to server time",
 	}, []string{"group", "target"})
 )
 
@@ -56,8 +50,7 @@ func init() {
 	prometheus.MustRegister(rttMetric)
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
-	prometheus.MustRegister(xmtTimeMetric)
-	prometheus.MustRegister(xmtTimeMetricComp)
+	prometheus.MustRegister(timeOffsetMetric)
 }
 
 type packet struct {
@@ -99,15 +92,12 @@ func singleprobe(group, target, hostport string) error {
 		if reachable > 0 && dispersion > 0 {
 			rttMetric.With(labels).Set(elapsed.Seconds())
 			dispersionMetric.With(labels).Set(dispersion)
-			xmt := time.Now().Sub(ntpTime64ToTime(rsp.TxTime)).Nanoseconds()
-			xmtTimeMetric.With(labels).Set(float64(xmt) / float64(1e6))
 			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
-			xmtTimeMetricComp.With(labels).Set(float64(offset) / float64(1e6))
+			timeOffsetMetric.With(labels).Set(float64(offset) / float64(1e6))
 		} else {
 			rttMetric.With(labels).Set(math.NaN())
 			dispersionMetric.With(labels).Set(math.NaN())
-			xmtTimeMetric.With(labels).Set(math.NaN())
-			xmtTimeMetricComp.With(labels).Set(math.NaN())
+			timeOffsetMetric.With(labels).Set(math.NaN())
 		}
 		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
 	}()
@@ -139,11 +129,20 @@ func singleprobe(group, target, hostport string) error {
 
 func probe(group, target, hostport string) {
 	for {
+		start := time.Now()
 		err := singleprobe(group, target, hostport)
 		if err != nil {
 			log.Printf("%s-%s(%s): %v", group, target, hostport, err)
 		}
-		time.Sleep(10 * time.Second)
+		elapsed := time.Now().Sub(start)
+		delay := 10.0 - elapsed.Seconds()
+		if delay < 4 {
+			delay = 4
+		}
+		if delay > 10 {
+			delay = 10
+		}
+		time.Sleep(time.Duration(delay) * time.Second)
 	}
 }
 
@@ -167,11 +166,35 @@ func main() {
 		{"google", "time4_ipv6", "[2001:4860:4806:c::]:123"},
 
 		{"apple", "time", "time.apple.com:123"},
+		{"apple", "time.asia", "time.asia.apple.com:123"},
+		{"apple", "time.euro", "time.euro.apple.com:123"},
+
 		{"microsoft", "time", "time.windows.com:123"},
 
-		{"nist", "time", "time.nist.gov:123"},
 		{"nist", "time-a-g", "time-a-g.nist.gov:123"},
+		{"nist", "time-b-g", "time-b-g.nist.gov:123"},
+		{"nist", "time-c-g", "time-c-g.nist.gov:123"},
+		{"nist", "time-d-g", "time-d-g.nist.gov:123"},
+		{"nist", "time-d-g", "time-d-g.nist.gov:123"},
+		{"nist", "time-a-wwv", "time-a-wwv.nist.gov:123"},
+		{"nist", "time-b-wwv", "time-b-wwv.nist.gov:123"},
+		{"nist", "time-c-wwv", "time-c-wwv.nist.gov:123"},
+		{"nist", "time-d-wwv", "time-d-wwv.nist.gov:123"},
+		{"nist", "time-d-wwv", "time-d-wwv.nist.gov:123"},
 		{"nist", "time-a-b", "time-a-b.nist.gov:123"},
+		{"nist", "time-b-b", "time-b-b.nist.gov:123"},
+		{"nist", "time-c-b", "time-c-b.nist.gov:123"},
+		{"nist", "time-d-b", "time-d-b.nist.gov:123"},
+		{"nist", "time-d-b", "time-d-b.nist.gov:123"},
+		{"nist", "time.nist", "time.nist.gov:123"},
+		{"nist", "utcnist", "utcnist.colorado.edu:123"},
+		{"nist", "utcnist2", "utcnist2.colorado.edu:123"},
+
+		{"usno", "tick.usno", "tick.usno.navy.mil:123"},
+		{"usno", "tock.usno", "tock.usno.navy.mil:123"},
+		{"usno", "ntp2.usno", "ntp2.usno.navy.mil:123"},
+		{"usno", "tick.usnogps", "tick.usnogps.navy.mil:123"},
+		{"usno", "tock.usnogps", "tock.usnogps.navy.mil:123"},
 
 		{"pool", "0", "0.pool.ntp.org:123"},
 		{"pool", "1", "1.pool.ntp.org:123"},
