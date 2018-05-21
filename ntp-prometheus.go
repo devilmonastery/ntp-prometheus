@@ -22,6 +22,18 @@ var (
 		Name:      "rtt",
 		Help:      "Round-trip time in seconds for NTP request/response",
 	}, []string{"group", "target"})
+	packetTxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "tx_time",
+		Help:      "Delta between sent time at probe and recv time at server",
+	}, []string{"group", "target"})
+	packetRxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "rx_time",
+		Help:      "Delta between sent time at server and recv time at probe",
+	}, []string{"group", "target"})
 	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
@@ -48,6 +60,8 @@ const (
 
 func init() {
 	prometheus.MustRegister(rttMetric)
+	prometheus.MustRegister(packetTxMetric)
+	prometheus.MustRegister(packetRxMetric)
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
 	prometheus.MustRegister(timeOffsetMetric)
@@ -81,6 +95,7 @@ func singleprobe(group, target, hostport string) error {
 	reachable := float64(0)
 	elapsed := time.Duration(0)
 	labels := prometheus.Labels{"group": group, "target": target}
+
 	rsp := &packet{}
 	sent := time.Now()
 	recv := time.Now()
@@ -94,10 +109,14 @@ func singleprobe(group, target, hostport string) error {
 			dispersionMetric.With(labels).Set(dispersion)
 			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
 			timeOffsetMetric.With(labels).Set(float64(offset) / float64(1e6))
+			packetTxMetric.With(labels).Set(float64(ntpTime64ToTime(rsp.RxTime).Sub(sent)))
+			packetRxMetric.With(labels).Set(float64(recv.Sub(ntpTime64ToTime(rsp.TxTime))))
 		} else {
 			rttMetric.With(labels).Set(math.NaN())
 			dispersionMetric.With(labels).Set(math.NaN())
 			timeOffsetMetric.With(labels).Set(math.NaN())
+			packetTxMetric.With(labels).Set(math.NaN())
+			packetRxMetric.With(labels).Set(math.NaN())
 		}
 		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
 	}()
