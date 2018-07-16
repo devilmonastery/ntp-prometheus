@@ -175,6 +175,7 @@ func main() {
 		hostport string
 	}{
 		{"google", "time_dns", "time.google.com:123"},
+		{"google", "android_dns", "time.android.com:123"},
 		{"google", "time1_ipv4", "216.239.35.0:123"},
 		{"google", "time1_ipv6", "[2001:4860:4806::]:123"},
 		{"google", "time2_ipv4", "216.239.35.4:123"},
