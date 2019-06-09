@@ -191,6 +191,8 @@ func main() {
 
 		{"microsoft", "time", "time.windows.com:123"},
 
+		{"amazon", "ec2", "169.254.169.123:123"},
+
 		{"nist", "time-a-g", "time-a-g.nist.gov:123"},
 		{"nist", "time-b-g", "time-b-g.nist.gov:123"},
 		{"nist", "time-c-g", "time-c-g.nist.gov:123"},
