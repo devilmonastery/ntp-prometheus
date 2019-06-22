@@ -193,6 +193,12 @@ func main() {
 
 		{"amazon", "ec2", "169.254.169.123:123"},
 
+		{"cloudflare", "dns", "time.cloudflare.com:123"},
+		{"cloudflare", "ipv4-1", "162.159.200.1:123"},
+		{"cloudflare", "ipv4-2", "162.159.200.123:123"},
+		{"cloudflare", "ipv6-1", "[2606:4700:f1::1]:123"},
+		{"cloudflare", "ipv6-2", "[2606:4700:f1::123]:123"},
+
 		{"nist", "time-a-g", "time-a-g.nist.gov:123"},
 		{"nist", "time-b-g", "time-b-g.nist.gov:123"},
 		{"nist", "time-c-g", "time-c-g.nist.gov:123"},
