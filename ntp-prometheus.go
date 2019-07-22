@@ -118,7 +118,7 @@ func singleprobe(group, target, hostport string) error {
 			packetTxMetric.With(labels).Set(math.NaN())
 			packetRxMetric.With(labels).Set(math.NaN())
 		}
-		fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
+		// fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
 	}()
 
 	// version 4, mode 3
