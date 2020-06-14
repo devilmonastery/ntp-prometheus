@@ -19,19 +19,19 @@ var (
 	rttMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "rtt",
+		Name:      "rtt_seconds",
 		Help:      "Round-trip time in seconds for NTP request/response",
 	}, []string{"group", "target"})
 	packetTxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "tx_time",
+		Name:      "tx_time_seconds",
 		Help:      "Delta between sent time at probe and recv time at server",
 	}, []string{"group", "target"})
 	packetRxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "rx_time",
+		Name:      "rx_time_seconds",
 		Help:      "Delta between sent time at server and recv time at probe",
 	}, []string{"group", "target"})
 	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -49,7 +49,7 @@ var (
 	timeOffsetMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
-		Name:      "offset",
+		Name:      "offset_seconds",
 		Help:      "Offset from local time to server time",
 	}, []string{"group", "target"})
 )
@@ -108,7 +108,7 @@ func singleprobe(group, target string, conn net.Conn) error {
 			rttMetric.With(labels).Set(elapsed.Seconds())
 			dispersionMetric.With(labels).Set(dispersion)
 			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
-			timeOffsetMetric.With(labels).Set(float64(offset) / float64(1e6))
+			timeOffsetMetric.With(labels).Set(float64(offset))
 			packetTxMetric.With(labels).Set(float64(ntpTime64ToTime(rsp.RxTime).Sub(sent)))
 			packetRxMetric.With(labels).Set(float64(recv.Sub(ntpTime64ToTime(rsp.TxTime))))
 		} else {
