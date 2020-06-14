@@ -91,7 +91,7 @@ func ntpTime64ToTime(ntpTime64 uint64) time.Time {
 	return time.Unix(sec, nsec)
 }
 
-func singleprobe(group, target, hostport string) error {
+func singleprobe(group, target string, conn net.Conn) error {
 	reachable := float64(0)
 	elapsed := time.Duration(0)
 	labels := prometheus.Labels{"group": group, "target": target}
@@ -118,16 +118,10 @@ func singleprobe(group, target, hostport string) error {
 			packetTxMetric.With(labels).Set(math.NaN())
 			packetRxMetric.With(labels).Set(math.NaN())
 		}
-		// fmt.Printf("%s-%s (%s): reachable(%v) in %v nanos\n", group, target, hostport, reachable > 0, elapsed.Nanoseconds())
 	}()
 
 	// version 4, mode 3
 	req := &packet{Settings: 0x23}
-	conn, err := net.Dial("udp", hostport)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	if err := conn.SetDeadline(
 		time.Now().Add(30 * time.Second)); err != nil {
 		return err
@@ -147,11 +141,21 @@ func singleprobe(group, target, hostport string) error {
 }
 
 func probe(group, target, hostport string) {
+	conn, _ := net.Dial("udp", hostport)
 	for {
 		start := time.Now()
-		err := singleprobe(group, target, hostport)
-		if err != nil {
-			log.Printf("%s-%s(%s): %v", group, target, hostport, err)
+		// Keep trying to make a connection if we don't have one.
+		if conn == nil {
+			var err error
+			conn, err = net.Dial("udp", hostport)
+			if err != nil {
+				log.Printf("error: %s-%s(%s): %v", group, target, hostport, err)
+			}
+		} else {
+			err := singleprobe(group, target, conn)
+			if err != nil {
+				log.Printf("error: %s-%s(%s): %v", group, target, hostport, err)
+			}
 		}
 		elapsed := time.Now().Sub(start)
 		delay := 10.0 - elapsed.Seconds()
@@ -221,8 +225,6 @@ func main() {
 		{"usno", "tick.usno", "tick.usno.navy.mil:123"},
 		{"usno", "tock.usno", "tock.usno.navy.mil:123"},
 		{"usno", "ntp2.usno", "ntp2.usno.navy.mil:123"},
-		{"usno", "tick.usnogps", "tick.usnogps.navy.mil:123"},
-		{"usno", "tock.usnogps", "tock.usnogps.navy.mil:123"},
 
 		{"pool", "0", "0.pool.ntp.org:123"},
 		{"pool", "1", "1.pool.ntp.org:123"},

@@ -10,8 +10,7 @@ WantedBy=multi-user.target
 User=prometheus
 Group=prometheus
 Type=simple
-ExecStart=/usr/local/bin/ntp-prometheus
-Restart=on-failure
-RestartSec=5s
+ExecStart=/home/prometheus/bin/ntp-prometheus
+Restart=always
 RemainAfterExit=no
 
