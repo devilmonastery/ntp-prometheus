@@ -108,7 +108,7 @@ func singleprobe(group, target string, conn net.Conn) error {
 			rttMetric.With(labels).Set(elapsed.Seconds())
 			dispersionMetric.With(labels).Set(dispersion)
 			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
-			timeOffsetMetric.With(labels).Set(float64(offset))
+			timeOffsetMetric.With(labels).Set(float64(offset.Seconds()))
 			packetTxMetric.With(labels).Set(float64(ntpTime64ToTime(rsp.RxTime).Sub(sent)))
 			packetRxMetric.With(labels).Set(float64(recv.Sub(ntpTime64ToTime(rsp.TxTime))))
 		} else {
