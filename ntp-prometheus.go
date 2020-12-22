@@ -181,6 +181,7 @@ func probe(conf Target) {
 		start := time.Now()
 		if err == nil {
 			err = singleprobe(conf, conn)
+			log.Printf("error: %s-%s(%s): %v", conf.Group, conf.Name, conf.Hostport, err)
 		}
 		elapsed := time.Now().Sub(start)
 		delay := float64(conf.Interval) - elapsed.Seconds()
