@@ -188,9 +188,7 @@ func probe(conf Target) {
 		if delay < minInterval {
 			delay = minInterval
 		}
-		if delay > conf.Interval {
-			delay = conf.Interval
-		}
+		delay = math.Min(delay, conf.Interval)
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
 }
