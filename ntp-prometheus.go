@@ -181,6 +181,10 @@ func probe(conf Target) {
 		start := time.Now()
 		if err == nil {
 			err = singleprobe(conf, conn)
+			if err != nil {
+				log.Printf("error: %s-%s(%s): %v", conf.Group, conf.Name, conf.Hostport, err)
+			}
+		} else {
 			log.Printf("error: %s-%s(%s): %v", conf.Group, conf.Name, conf.Hostport, err)
 		}
 		elapsed := time.Now().Sub(start)
