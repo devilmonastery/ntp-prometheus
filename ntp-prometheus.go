@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -118,11 +119,10 @@ func ntpTime64ToTime(ntpTime64 uint64) time.Time {
 func singleprobe(conf Target, conn net.Conn) error {
 	reachable := float64(0)
 	elapsed := time.Duration(0)
-	raddr := conn.RemoteAddr().String()
-	i := net.ParseIP(raddr)
-	addrtype := "ipv6"
-	if i.To4() != nil {
-		addrtype = "ipv4"
+	raddr, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	addrtype := "ipv4"
+	if strings.Contains(raddr, ":") {
+		addrtype = "ipv6"
 	}
 	labels := prometheus.Labels{
 		"group":    conf.Group,

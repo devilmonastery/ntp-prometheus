@@ -1,0 +1,24 @@
+--- # ntp-prometheus.yml
+# Listen on this address
+addr: ":12301"
+
+# probe this often
+interval: 10
+
+# Probe these targets
+targets:
+  #########
+  # Google
+  #########
+
+  # By DNS address
+  - name: "time.google.com"
+    group: "google"
+  # By IP address, ipv4
+  - name: "time1.google.com(ipv4)"
+    group: "google"
+    hostport: "216.239.35.0:123"
+  # By IP address, ipv6
+  - name: "time1.google.com(ipv6)"
+    group: "google"
+    hostport: "[2001:4860:4806::]:123"
