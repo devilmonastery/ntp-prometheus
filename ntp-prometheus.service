@@ -10,7 +10,7 @@ WantedBy=multi-user.target
 User=prometheus
 Group=prometheus
 Type=simple
-ExecStart=/home/prometheus/bin/ntp-prometheus
+ExecStart=/home/prometheus/bin/ntp-prometheus --config /home/prometheus/ntp-prometheus.yaml
 Restart=always
 RemainAfterExit=no
 
