@@ -1,6 +1,6 @@
 --- # ntp-prometheus.yml
 # Listen on this address
-addr: ":12301"
+addr: ":12300"
 
 # probe this often
 interval: 10
