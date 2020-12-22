@@ -4,58 +4,67 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"net"
 	"net/http"
 	"time"
 
+	"gopkg.in/yaml.v2"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-	addr      = flag.String("listen_addr", ":12300", "The address to listen on for HTTP requests.")
+	defaultAddr     = ":12300"
+	defaultInterval = float64(10) // seconds
+	minInterval     = float64(5)  //seconds
+
+	config = flag.String("config", "", "path to the config file")
+
+	// Prometheus metrics
 	rttMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "rtt_seconds",
 		Help:      "Round-trip time in seconds for NTP request/response",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 	packetTxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "tx_time_seconds",
 		Help:      "Delta between sent time at probe and recv time at server",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 	packetRxMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "rx_time_seconds",
 		Help:      "Delta between sent time at server and recv time at probe",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "reachable",
 		Help:      "If a target is reachable",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 	dispersionMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "dispersion",
 		Help:      "root dispersion",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 	timeOffsetMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
 		Name:      "offset_seconds",
 		Help:      "Offset from local time to server time",
-	}, []string{"group", "target"})
+	}, []string{"group", "target", "addrtype", "addr"})
 )
 
 const (
-	NTPUTCEpochDelta = 2208988800
+	ntpUTCEpochDelta = 2208988800
 )
 
 func init() {
@@ -65,6 +74,21 @@ func init() {
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
 	prometheus.MustRegister(timeOffsetMetric)
+}
+
+// Config is the external config.
+type Config struct {
+	Addr     string   `yaml:"addr"`
+	Interval float64  `yaml:"interval"`
+	Targets  []Target `yaml:"targets"`
+}
+
+// Target is contained in a Config.
+type Target struct {
+	Name     string  `yaml:"name"`
+	Group    string  `yaml:"group"`
+	Hostport string  `yaml:"hostport"`
+	Interval float64 `yaml:"interval"`
 }
 
 type packet struct {
@@ -86,15 +110,26 @@ func ntpTime32ToDuration(ntpTime32 uint32) time.Duration {
 }
 
 func ntpTime64ToTime(ntpTime64 uint64) time.Time {
-	sec := int64(ntpTime64>>32) - NTPUTCEpochDelta
+	sec := int64(ntpTime64>>32) - ntpUTCEpochDelta
 	nsec := int64((uint64(uint32(ntpTime64)) * 1e9) >> 32)
 	return time.Unix(sec, nsec)
 }
 
-func singleprobe(group, target string, conn net.Conn) error {
+func singleprobe(conf Target, conn net.Conn) error {
 	reachable := float64(0)
 	elapsed := time.Duration(0)
-	labels := prometheus.Labels{"group": group, "target": target}
+	raddr := conn.RemoteAddr().String()
+	i := net.ParseIP(raddr)
+	addrtype := "ipv6"
+	if i.To4() != nil {
+		addrtype = "ipv4"
+	}
+	labels := prometheus.Labels{
+		"group":    conf.Group,
+		"target":   conf.Name,
+		"addr":     raddr,
+		"addrtype": addrtype,
+	}
 
 	rsp := &packet{}
 	sent := time.Now()
@@ -140,31 +175,24 @@ func singleprobe(group, target string, conn net.Conn) error {
 	return nil
 }
 
-func probe(group, target, hostport string) {
-	conn, _ := net.Dial("udp", hostport)
+func probe(conf Target) {
 	for {
+		conn, err := net.Dial("udp", conf.Hostport)
 		start := time.Now()
-		// Keep trying to make a connection if we don't have one.
-		if conn == nil {
-			var err error
-			conn, err = net.Dial("udp", hostport)
+		if err == nil {
+			err = singleprobe(conf, conn)
 			if err != nil {
-				log.Printf("error: %s-%s(%s): %v", group, target, hostport, err)
+				log.Printf("error: %s-%s(%s): %v", conf.Group, conf.Name, conf.Hostport, err)
 			}
 		} else {
-			err := singleprobe(group, target, conn)
-			if err != nil {
-				log.Printf("error: %s-%s(%s): %v", group, target, hostport, err)
-			}
+			log.Printf("error: %s-%s(%s): %v", conf.Group, conf.Name, conf.Hostport, err)
 		}
 		elapsed := time.Now().Sub(start)
-		delay := 10.0 - elapsed.Seconds()
-		if delay < 4 {
-			delay = 4
+		delay := float64(conf.Interval) - elapsed.Seconds()
+		if delay < minInterval {
+			delay = minInterval
 		}
-		if delay > 10 {
-			delay = 10
-		}
+		delay = math.Min(delay, conf.Interval)
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
 }
@@ -173,60 +201,39 @@ func main() {
 	flag.Parse()
 	http.Handle("/metrics", promhttp.Handler())
 
-	targets := []struct {
-		group    string
-		target   string
-		hostport string
-	}{
-		{"google", "time_dns", "time.google.com:123"},
-		{"google", "android_dns", "time.android.com:123"},
-		{"google", "time1_ipv4", "216.239.35.0:123"},
-		{"google", "time1_ipv6", "[2001:4860:4806::]:123"},
-		{"google", "time2_ipv4", "216.239.35.4:123"},
-		{"google", "time2_ipv6", "[2001:4860:4806:4::]:123"},
-		{"google", "time3_ipv4", "216.239.35.8:123"},
-		{"google", "time3_ipv6", "[2001:4860:4806:8::]:123"},
-		{"google", "time4_ipv4", "216.239.35.12:123"},
-		{"google", "time4_ipv6", "[2001:4860:4806:c::]:123"},
-
-		{"apple", "time", "time.apple.com:123"},
-		{"apple", "time.asia", "time.asia.apple.com:123"},
-		{"apple", "time.euro", "time.euro.apple.com:123"},
-
-		{"microsoft", "time", "time.windows.com:123"},
-
-		{"amazon", "ec2", "169.254.169.123:123"},
-
-		{"cloudflare", "dns", "time.cloudflare.com:123"},
-		{"cloudflare", "ipv4-1", "162.159.200.1:123"},
-		{"cloudflare", "ipv4-2", "162.159.200.123:123"},
-		{"cloudflare", "ipv6-1", "[2606:4700:f1::1]:123"},
-		{"cloudflare", "ipv6-2", "[2606:4700:f1::123]:123"},
-
-		{"nist", "time-a-g", "time-a-g.nist.gov:123"},
-		{"nist", "time-b-g", "time-b-g.nist.gov:123"},
-		{"nist", "time-c-g", "time-c-g.nist.gov:123"},
-		{"nist", "time-d-g", "time-d-g.nist.gov:123"},
-		{"nist", "time-d-g", "time-d-g.nist.gov:123"},
-		{"nist", "time-a-wwv", "time-a-wwv.nist.gov:123"},
-		{"nist", "time-b-wwv", "time-b-wwv.nist.gov:123"},
-		{"nist", "time-c-wwv", "time-c-wwv.nist.gov:123"},
-		{"nist", "time-a-b", "time-a-b.nist.gov:123"},
-		{"nist", "time-b-b", "time-b-b.nist.gov:123"},
-		{"nist", "time-c-b", "time-c-b.nist.gov:123"},
-		{"nist", "time-d-b", "time-d-b.nist.gov:123"},
-		{"nist", "time-d-b", "time-d-b.nist.gov:123"},
-
-		{"pool", "0", "0.pool.ntp.org:123"},
-		{"pool", "1", "1.pool.ntp.org:123"},
-		{"pool", "2", "2.pool.ntp.org:123"},
-		{"pool", "3", "3.pool.ntp.org:123"},
+	configBytes, err := ioutil.ReadFile(*config)
+	if err != nil {
+		log.Fatalf("could not read config %q: %v", *config, err)
 	}
 
-	for _, t := range targets {
-		go probe(t.group, t.target, t.hostport)
+	conf := &Config{}
+	err = yaml.Unmarshal(configBytes, &conf)
+	if err != nil {
+		log.Fatalf("could not read config: %v", err)
+	}
+	log.Printf("read config\n")
+
+	interval := defaultInterval
+	if conf.Interval > 0 {
+		interval = conf.Interval
 	}
 
-	err := http.ListenAndServe(*addr, nil)
+	for _, t := range conf.Targets {
+		if t.Hostport == "" {
+			t.Hostport = fmt.Sprintf("%s:123", t.Name)
+		}
+		if t.Interval <= 0 {
+			t.Interval = interval
+		}
+		log.Printf("starting probe for %s", t.Name)
+		go probe(t)
+	}
+
+	addr := conf.Addr
+	if addr == "" {
+		addr = defaultAddr
+	}
+	log.Printf("listening on %s", addr)
+	err = http.ListenAndServe(addr, nil)
 	fmt.Printf("exited: %v", err)
 }

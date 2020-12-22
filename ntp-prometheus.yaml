@@ -1,0 +1,135 @@
+--- # ntp-prometheus.yml
+# Listen on this address
+addr: ":12301"
+
+# probe this often
+interval: 10
+
+# Probe these targets
+targets:
+  #########
+  # Google
+  #########
+
+  # By DNS address
+  - name: "time.android.com"
+    group: "google"
+  - name: "time.google.com"
+    group: "google"
+  # By IP address, ipv4
+  - name: "time1.google.com(ipv4)"
+    group: "google"
+    hostport: "216.239.35.0:123"
+  - name: "time2.google.com(ipv4)"
+    group: "google"
+    hostport: "216.239.35.4:123"
+  - name: "time3.google.com(ipv4)"
+    group: "google"
+    hostport: "216.239.35.8:123"
+  - name: "time4.google.com(ipv4)"
+    group: "google"
+    hostport: "216.239.35.12:123"
+  # By IP address, ipv6
+  - name: "time1.google.com(ipv6)"
+    group: "google"
+    hostport: "[2001:4860:4806::]:123"
+  - name: "time2.google.com(ipv6)"
+    group: "google"
+    hostport: "[2001:4860:4806:4::]:123"
+  - name: "time3.google.com(ipv6)"
+    group: "google"
+    hostport: "[2001:4860:4806:8::]:123"
+  - name: "time4.google.com(ipv6)"
+    group: "google"
+    hostport: "[2001:4860:4806:c::]:123"
+
+  #########
+  # Apple
+  #########
+  - name: "time.apple.com"
+    group: "apple"
+  - name: "time.asia.apple.com"
+    group: "apple"
+  - name: "time.euro.apple.com"
+    group: "apple"
+
+  #########
+  # Swiss Federal Institute of Metrology
+  # https://www.metas.ch/metas/en/home/fabe/zeit-und-frequenz/time-dissemination.html
+  #########
+  - name: "ntp.metas.ch"
+    group: "metas"
+
+  #########
+  # Microsoft
+  #########
+  - name: "time.windows.com"
+    group: "microsoft"
+
+  #########
+  # Amazon
+  #########
+  - name: "ec2-ntp"
+    group: "amazon"
+    hostport: "169.254.169.123:123"
+    
+  #########
+  # Cloudflare
+  # https://developers.cloudflare.com/time-services/ntp/usage
+  #########
+  - name: "time.cloudflare.com"
+    group: "cloudflare"
+
+  #########
+  # NIST
+  # https://tf.nist.gov/tf-cgi/servers.cgi
+  #########
+  - name: "time.nist.gov"
+    group: "nist"
+  - name: "utcnist.colorado.edu"
+    group: "nist"
+  - name: "utcnist2.colorado.edu"
+    group: "nist"
+  - name: "time-a-g.nist.gov"
+    group: "nist"
+  - name: "time-b-g.nist.gov"
+    group: "nist"
+  - name: "time-c-g.nist.gov"
+    group: "nist"
+  - name: "time-d-g.nist.gov"
+    group: "nist"
+  - name: "time-e-g.nist.gov"
+    group: "nist"
+  - name: "time-a-wwv.nist.gov"
+    group: "nist"
+  - name: "time-b-wwv.nist.gov"
+    group: "nist"
+  - name: "time-c-wwv.nist.gov"
+    group: "nist"
+  - name: "time-d-wwv.nist.gov"
+    group: "nist"
+  - name: "time-e-wwv.nist.gov"
+    group: "nist"
+  - name: "time-a-b.nist.gov"
+    group: "nist"
+  - name: "time-b-b.nist.gov"
+    group: "nist"
+  - name: "time-c-b.nist.gov"
+    group: "nist"
+  - name: "time-d-b.nist.gov"
+    group: "nist"
+  - name: "time-e-b.nist.gov"
+    group: "nist"
+
+  #########
+  # Pool
+  # https://www.ntppool.org/en/use.html
+  #########
+  - name: "0.pool.ntp.org"
+    group: "pool"
+  - name: "1.pool.ntp.org"
+    group: "pool"
+  - name: "2.pool.ntp.org"
+    group: "pool"
+  - name: "3.pool.ntp.org"
+    group: "pool"
