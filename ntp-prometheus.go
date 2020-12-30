@@ -44,18 +44,6 @@ var (
 		Name:      "rx_time_seconds",
 		Help:      "Delta between sent time at server and recv time at probe",
 	}, []string{"group", "target", "addrtype", "addr"})
-	packetTxCompensatedMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "ntp",
-		Subsystem: "probe",
-		Name:      "tx_time_comp_seconds",
-		Help:      "Delta between sent time at probe and recv time at server, compensated",
-	}, []string{"group", "target", "addrtype", "addr"})
-	packetRxCompensatedMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "ntp",
-		Subsystem: "probe",
-		Name:      "rx_time_comp_seconds",
-		Help:      "Delta between sent time at server and recv time at prob, compensated",
-	}, []string{"group", "target", "addrtype", "addr"})
 	reachableMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
@@ -80,12 +68,6 @@ var (
 		Name:      "offset_seconds",
 		Help:      "Offset from local time to server time",
 	}, []string{"group", "target", "addrtype", "addr"})
-	timeOffsetCompensatedMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "ntp",
-		Subsystem: "probe",
-		Name:      "offset_comp_seconds",
-		Help:      "Offset from local time to server time, compensated",
-	}, []string{"group", "target", "addrtype", "addr"})
 )
 
 const (
@@ -96,13 +78,10 @@ func init() {
 	prometheus.MustRegister(rttMetric)
 	prometheus.MustRegister(packetTxMetric)
 	prometheus.MustRegister(packetRxMetric)
-	prometheus.MustRegister(packetTxCompensatedMetric)
-	prometheus.MustRegister(packetRxCompensatedMetric)
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
 	prometheus.MustRegister(dispersionSecondsMetric)
 	prometheus.MustRegister(timeOffsetMetric)
-	prometheus.MustRegister(timeOffsetCompensatedMetric)
 }
 
 // Config is the external config.
@@ -191,18 +170,6 @@ func singleprobe(conf Target, conn net.Conn) error {
 			// Offset from local clock time, using reported time in response.
 			offset := (rx + tx) / 2
 			timeOffsetMetric.With(labels).Set(offset)
-			// Tx and Rx time, compensated for the remote time server having a
-			// different absolute time than the local system.
-			remoteRtt := math.Abs(rx) + math.Abs(tx)
-			// Tx: time from client -> server, as portion of prober-observed rtt.
-			compTx := rtt * (math.Abs(tx) / remoteRtt)
-			packetTxCompensatedMetric.With(labels).Set(compTx)
-			// Tx: time from server -> client, as portion of prober-observed rtt.
-			compRx := rtt * (math.Abs(rx) / remoteRtt)
-			packetRxCompensatedMetric.With(labels).Set(compRx)
-			// Offset from local clock time, using compensated rx/tx.
-			compOffset := (compRx + compTx) / 2
-			timeOffsetCompensatedMetric.With(labels).Set(compOffset)
 		} else {
 			rttMetric.With(labels).Set(math.NaN())
 			dispersionMetric.With(labels).Set(math.NaN())
@@ -210,9 +177,6 @@ func singleprobe(conf Target, conn net.Conn) error {
 			timeOffsetMetric.With(labels).Set(math.NaN())
 			packetTxMetric.With(labels).Set(math.NaN())
 			packetRxMetric.With(labels).Set(math.NaN())
-			packetRxCompensatedMetric.With(labels).Set(math.NaN())
-			packetTxCompensatedMetric.With(labels).Set(math.NaN())
-			timeOffsetCompensatedMetric.With(labels).Set(math.NaN())
 		}
 	}()
 
