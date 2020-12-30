@@ -56,6 +56,12 @@ var (
 		Name:      "dispersion",
 		Help:      "root dispersion",
 	}, []string{"group", "target", "addrtype", "addr"})
+	dispersionSecondsMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "ntp",
+		Subsystem: "probe",
+		Name:      "dispersion_seconds",
+		Help:      "root dispersion",
+	}, []string{"group", "target", "addrtype", "addr"})
 	timeOffsetMetric = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ntp",
 		Subsystem: "probe",
@@ -74,6 +80,7 @@ func init() {
 	prometheus.MustRegister(packetRxMetric)
 	prometheus.MustRegister(reachableMetric)
 	prometheus.MustRegister(dispersionMetric)
+	prometheus.MustRegister(dispersionSecondsMetric)
 	prometheus.MustRegister(timeOffsetMetric)
 }
 
@@ -131,36 +138,48 @@ func singleprobe(conf Target, conn net.Conn) error {
 		"addrtype": addrtype,
 	}
 
-	rsp := &packet{}
-	sent := time.Now()
-	recv := time.Now()
-
-	defer func() {
-		reachableMetric.With(labels).Set(reachable)
-		dispersion := float64(ntpTime32ToDuration(rsp.RootDispersion).Nanoseconds()) / float64(1000)
-		// We got an answer and it's plausible, report what we got.
-		if reachable > 0 && dispersion > 0 {
-			rttMetric.With(labels).Set(elapsed.Seconds())
-			dispersionMetric.With(labels).Set(dispersion)
-			offset := ((ntpTime64ToTime(rsp.RxTime).Sub(sent)) + (ntpTime64ToTime(rsp.TxTime).Sub(recv))) / 2
-			timeOffsetMetric.With(labels).Set(float64(offset.Seconds()))
-			packetTxMetric.With(labels).Set(float64(ntpTime64ToTime(rsp.RxTime).Sub(sent).Seconds()))
-			packetRxMetric.With(labels).Set(float64(recv.Sub(ntpTime64ToTime(rsp.TxTime)).Seconds()))
-		} else {
-			rttMetric.With(labels).Set(math.NaN())
-			dispersionMetric.With(labels).Set(math.NaN())
-			timeOffsetMetric.With(labels).Set(math.NaN())
-			packetTxMetric.With(labels).Set(math.NaN())
-			packetRxMetric.With(labels).Set(math.NaN())
-		}
-	}()
-
 	// version 4, mode 3
 	req := &packet{Settings: 0x23}
 	if err := conn.SetDeadline(
 		time.Now().Add(30 * time.Second)); err != nil {
 		return err
 	}
+	sent := time.Now()
+	recv := time.Now()
+	rsp := &packet{}
+
+	defer func() {
+		reachableMetric.With(labels).Set(reachable)
+		dispersionNS := float64(ntpTime32ToDuration(rsp.RootDispersion).Nanoseconds())
+		// We got an answer and it's plausible, report what we got.
+		if reachable > 0 && dispersionNS > 0 {
+			// rtt as observed from the probe alone.
+			rtt := elapsed.Seconds()
+			rttMetric.With(labels).Set(rtt)
+			// Dispersion, in microseconds unfortunately (old metric).
+			dispersionMetric.With(labels).Set(dispersionNS / float64(1000))
+			// Dispersion, in seconds (new metric).
+			dispersionSecondsMetric.With(labels).Set(dispersionNS / float64(10e9))
+			// Tx and Rx time, using reported time in the response.
+			// Tx: time from client -> server
+			tx := float64(ntpTime64ToTime(rsp.RxTime).Sub(sent).Seconds())
+			packetTxMetric.With(labels).Set(tx)
+			// Rx: time from server -> client
+			rx := float64(recv.Sub(ntpTime64ToTime(rsp.TxTime)).Seconds())
+			packetRxMetric.With(labels).Set(rx)
+			// Offset from local clock time, using reported time in response.
+			offset := (rx + tx) / 2
+			timeOffsetMetric.With(labels).Set(offset)
+		} else {
+			rttMetric.With(labels).Set(math.NaN())
+			dispersionMetric.With(labels).Set(math.NaN())
+			dispersionSecondsMetric.With(labels).Set(math.NaN())
+			timeOffsetMetric.With(labels).Set(math.NaN())
+			packetTxMetric.With(labels).Set(math.NaN())
+			packetRxMetric.With(labels).Set(math.NaN())
+		}
+	}()
+
 	if err := binary.Write(conn, binary.BigEndian, req); err != nil {
 		return err
 	}

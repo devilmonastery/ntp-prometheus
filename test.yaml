@@ -14,6 +14,8 @@ targets:
   # By DNS address
   - name: "time.google.com"
     group: "google"
+  - name: "time.windows.com"
+    group: "microsoft"
   # By IP address, ipv4
   - name: "time1.google.com(ipv4)"
     group: "google"
